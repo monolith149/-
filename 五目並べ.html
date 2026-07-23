@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>五目並べ - AI対戦</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #f5f0e8;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 12px;
+    min-height: 100vh;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .gomoku-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 520px;
+    margin-bottom: 8px;
+  }
+  .gomoku-header select, .gomoku-header button {
+    font: inherit;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    background: #fff;
+    color: #333;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .gomoku-header button {
+    background: #1a1a1a;
+    color: #fff;
+    border: none;
+  }
+  .gomoku-header button.secondary {
+    background: #e8e4dc;
+    color: #333;
+    border: 1px solid #ccc;
+  }
+  .gomoku-status {
+    font-size: 16px;
+    font-weight: 500;
+    min-height: 28px;
+    text-align: center;
+    color: #333;
+    margin-bottom: 4px;
+  }
+  .sound-hint {
+    font-size: 12px;
+    color: #888;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .gomoku-board-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 520px;
+    aspect-ratio: 1 / 1;
+    background: #e6b87c;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .gomoku-board {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .gomoku-cell {
+    cursor: pointer;
+  }
+  .gomoku-cell:hover {
+    opacity: 0.6;
+  }
+  .stone-black {
+    fill: #1a1a1a;
+    stroke: #000;
+    stroke-width: 0.5;
+  }
+  .stone-white {
+    fill: #f5f5f5;
+    stroke: #ccc;
+    stroke-width: 0.5;
+  }
+  .last-move {
+    fill: none;
+    stroke: #d32f2f;
+    stroke-width: 2;
+  }
+  .win-line {
+    stroke: #2e7d32;
+    stroke-width: 3;
+    stroke-linecap: round;
+    opacity: 0.8;
+  }
+  .copy-area {
+    width: 100%;
+    max-width: 520px;
+    display: none;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .copy-area.visible {
+    display: flex;
+  }
+  .copy-area textarea {
+    width: 100%;
+    min-height: 140px;
+    font-family: "SF Mono", "Courier New", monospace;
+    font-size: 13px;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+    background: #faf8f4;
+    color: #333;
+    resize: vertical;
+  }
+  .copy-area button {
+    align-self: flex-end;
+    font: inherit;
+    padding: 8px 14px;
+    border-radius: 8px;
+    border: none;
+    background: #1a1a1a;
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .rules-box {
+    width: 100%;
+    max-width: 520px;
+    margin-top: 16px;
+    padding: 12px 16px;
+    background: #fff;
+    border-radius: 10px;
+    border: 1px solid #e0dcd4;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #555;
+  }
+  .rules-box h3 {
+    font-size: 14px;
+    color: #333;
+    margin-bottom: 6px;
+  }
+  .rules-box ul {
+    margin-left: 18px;
+  }
+</style>
+<base target="_blank">
+</head>
+<body>
+
+<div class="gomoku-header">
+  <select id="levelSelect">
+    <option value="1">レベル 1 (初級)</option>
+    <option value="2">レベル 2 (中級)</option>
+    <option value="3" selected>レベル 3 (上級)</option>
+    <option value="4">レベル 4 (超上級)</option>
+    <option value="5">レベル 5 (最強)</option>
+  </select>
+  <select id="playerColor">
+    <option value="black" selected>あなた: 黒 (先手)</option>
+    <option value="white">あなた: 白 (後手)</option>
+  </select>
+  <button id="resetBtn">新規対局</button>
+  <button id="copyBtn" class="secondary">盤面コピー</button>
+</div>
+
+<div class="gomoku-status" id="statusText">黒の番です</div>
+<div class="sound-hint" id="soundHint">🔊 盤面をタップすると音が有効になります</div>
+
+<div class="gomoku-board-wrap" id="boardWrap">
+  <svg class="gomoku-board" id="boardSvg" viewBox="0 0 600 600"></svg>
+</div>
+
+<div class="copy-area" id="copyArea">
+  <textarea id="copyText" readonly></textarea>
+  <button id="copyClipBtn">クリップボードにコピー</button>
+</div>
+
+<div class="rules-box">
+  <h3>ルール</h3>
+  <ul>
+    <li>黒（先手）は<strong>三三禁・四四禁・長連</strong>の3種類の禁じ手があります。</li>
+    <li>白（後手）は禁じ手なしで自由に置けます。</li>
+    <li>先に5個並べた方が勝ちです（黒はちょうど5個、6個以上は長連で負け）。</li>
+    <li>レベル1〜5からAIの強さを選べます。レベル5は1手先読み＋評価関数です。</li>
+  </ul>
+</div>
+
+<script>
+(function() {
+  const SIZE = 15;
+  const CELL = 600 / (SIZE + 1);
+  const OFFSET = CELL;
+  const DIRS = [[1,0],[0,1],[1,1],[1,-1]];
+  const COLS = 'ABCDEFGHIJKLMNO';
+  let board = [];
+  let current = 'black';
+  let playerSide = 'black';
+  let aiLevel = 3;
+  let gameOver = false;
+  let lastMove = null;
+  let winCells = null;
+  let audioCtx = null;
+  let audioEnabled = false;
+  let moveHistory = [];
+
+  function initAudio() {
+    if (audioEnabled) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    if (!audioCtx) {
+      audioCtx = new AC();
+    }
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().then(() => { audioEnabled = true; });
+    } else {
+      audioEnabled = true;
+    }
+    document.getElementById('soundHint').style.display = 'none';
+  }
+
+  function playTone(freq, duration, type, vol) {
+    if (!audioCtx || !audioEnabled) return;
+    try {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = type || 'sine';
+      osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+      gain.gain.setValueAtTime(vol || 0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start();
+      osc.stop(audioCtx.currentTime + duration);
+    } catch(e) {}
+  }
+
+  function playPlaceSound(color) {
+    playTone(color === 'black' ? 280 : 350, 0.12, 'sine', 0.12);
+    setTimeout(() => playTone(color === 'black' ? 140 : 175, 0.18, 'triangle', 0.06), 30);
+  }
+
+  function playWinSound() {
+    [523, 659, 784, 1047].forEach((f, i) => {
+      setTimeout(() => playTone(f, 0.25, 'sine', 0.12), i * 120);
+    });
+  }
+
+  function playForbiddenSound() {
+    playTone(150, 0.3, 'sawtooth', 0.08);
+  }
+
+  function initBoard() {
+    board = Array(SIZE).fill(null).map(() => Array(SIZE).fill(null));
+    current = 'black';
+    gameOver = false;
+    lastMove = null;
+    winCells = null;
+    moveHistory = [];
+    document.getElementById('copyArea').classList.remove('visible');
+    updateStatus();
+    renderBoard();
+    if (playerSide !== current) {
+      setTimeout(aiMove, 400);
+    }
+  }
+
+  function inBounds(r, c) {
+    return r >= 0 && r < SIZE && c >= 0 && c < SIZE;
+  }
+
+  function countLine(r, c, dr, dc, color) {
+    let count = 0;
+    let nr = r + dr, nc = c + dc;
+    while (inBounds(nr, nc) && board[nr][nc] === color) {
+      count++;
+      nr += dr; nc += dc;
+    }
+    let end1 = {r: nr, c: nc};
+    nr = r - dr; nc = c - dc;
+    while (inBounds(nr, nc) && board[nr][nc] === color) {
+      count++;
+      nr -= dr; nc -= dc;
+    }
+    let end2 = {r: nr, c: nc};
+    return {count: count + 1, end1, end2};
+  }
+
+  function isFive(r, c, color) {
+    for (let [dr, dc] of DIRS) {
+      const {count} = countLine(r, c, dr, dc, color);
+      if (count >= 5) return true;
+    }
+    return false;
+  }
+
+  function isOverline(r, c, color) {
+    if (color !== 'black') return false;
+    for (let [dr, dc] of DIRS) {
+      const {count} = countLine(r, c, dr, dc, color);
+      if (count > 5) return true;
+    }
+    return false;
+  }
+
+  function getOpenEnds(r, c, dr, dc, color) {
+    const {end1, end2} = countLine(r, c, dr, dc, color);
+    let open = 0;
+    if (inBounds(end1.r, end1.c) && board[end1.r][end1.c] === null) open++;
+    if (inBounds(end2.r, end2.c) && board[end2.r][end2.c] === null) open++;
+    return open;
+  }
+
+  function isOpenThree(r, c, dr, dc, color) {
+    const line = countLine(r, c, dr, dc, color);
+    if (line.count !== 3) return false;
+    let open = 0;
+    if (inBounds(line.end1.r, line.end1.c) && board[line.end1.r][line.end1.c] === null) open++;
+    if (inBounds(line.end2.r, line.end2.c) && board[line.end2.r][line.end2.c] === null) open++;
+    return open === 2;
+  }
+
+  function isFour(r, c, dr, dc, color) {
+    const line = countLine(r, c, dr, dc, color);
+    return line.count === 4;
+  }
+
+  function isDoubleThree(r, c, color) {
+    if (color !== 'black') return false;
+    let count = 0;
+    for (let [dr, dc] of DIRS) {
+      if (isOpenThree(r, c, dr, dc, color)) count++;
+    }
+    return count >= 2;
+  }
+
+  function isDoubleFour(r, c, color) {
+    if (color !== 'black') return false;
+    let count = 0;
+    for (let [dr, dc] of DIRS) {
+      if (isFour(r, c, dr, dc, color)) count++;
+    }
+    return count >= 2;
+  }
+
+  function isForbidden(r, c, color) {
+    if (color !== 'black') return false;
+    if (isOverline(r, c, color)) return true;
+    if (isDoubleThree(r, c, color)) return true;
+    if (isDoubleFour(r, c, color)) return true;
+    return false;
+  }
+
+  function checkWin(r, c, color) {
+    for (let [dr, dc] of DIRS) {
+      const line = countLine(r, c, dr, dc, color);
+      if (line.count >= 5) {
+        const cells = [];
+        let nr = r, nc = c;
+        while (inBounds(nr, nc) && board[nr][nc] === color) {
+          nr -= dr; nc -= dc;
+        }
+        nr += dr; nc += dc;
+        while (inBounds(nr, nc) && board[nr][nc] === color) {
+          cells.push({r: nr, c: nc});
+          nr += dr; nc += dc;
+        }
+        return cells;
+      }
+    }
+    return null;
+  }
+
+  function placeStone(r, c) {
+    if (gameOver || board[r][c] !== null) return false;
+    if (current === 'black' && isForbidden(r, c, 'black')) {
+      playForbiddenSound();
+      updateStatus('禁じ手です！三三禁・四四禁・長連のいずれか');
+      return false;
+    }
+    board[r][c] = current;
+    lastMove = {r, c};
+    moveHistory.push({color: current, pos: COLS[c] + (r + 1)});
+    playPlaceSound(current);
+    const win = checkWin(r, c, current);
+    if (win) {
+      winCells = win;
+      gameOver = true;
+      playWinSound();
+      updateStatus((current === 'black' ? '黒' : '白') + 'の勝利！');
+      renderBoard();
+      return true;
+    }
+    current = current === 'black' ? 'white' : 'black';
+    updateStatus();
+    renderBoard();
+    return true;
+  }
+
+  function updateStatus(msg) {
+    const el = document.getElementById('statusText');
+    if (msg) { el.textContent = msg; return; }
+    if (gameOver) return;
+    const name = current === 'black' ? '黒' : '白';
+    const turn = current === playerSide ? 'あなた' : 'AI';
+    el.textContent = name + 'の番 (' + turn + ')';
+  }
+
+  function renderBoard() {
+    const svg = document.getElementById('boardSvg');
+    svg.innerHTML = '';
+    const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    bg.setAttribute('x', '0'); bg.setAttribute('y', '0');
+    bg.setAttribute('width', '600'); bg.setAttribute('height', '600');
+    bg.setAttribute('fill', '#e6b87c');
+    svg.appendChild(bg);
+
+    for (let i = 0; i < SIZE; i++) {
+      const line1 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line1.setAttribute('x1', OFFSET); line1.setAttribute('y1', OFFSET + i * CELL);
+      line1.setAttribute('x2', OFFSET + (SIZE - 1) * CELL); line1.setAttribute('y2', OFFSET + i * CELL);
+      line1.setAttribute('stroke', '#5c3a1e'); line1.setAttribute('stroke-width', '1');
+      svg.appendChild(line1);
+      const line2 = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line2.setAttribute('x1', OFFSET + i * CELL); line2.setAttribute('y1', OFFSET);
+      line2.setAttribute('x2', OFFSET + i * CELL); line2.setAttribute('y2', OFFSET + (SIZE - 1) * CELL);
+      line2.setAttribute('stroke', '#5c3a1e'); line2.setAttribute('stroke-width', '1');
+      svg.appendChild(line2);
+    }
+
+    const stars = [[3,3],[3,7],[3,11],[7,3],[7,7],[7,11],[11,3],[11,7],[11,11]];
+    for (let [sr, sc] of stars) {
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', OFFSET + sc * CELL);
+      dot.setAttribute('cy', OFFSET + sr * CELL);
+      dot.setAttribute('r', '4');
+      dot.setAttribute('fill', '#5c3a1e');
+      svg.appendChild(dot);
+    }
+
+    if (winCells && winCells.length >= 2) {
+      const start = winCells[0];
+      const end = winCells[winCells.length - 1];
+      const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', OFFSET + start.c * CELL);
+      line.setAttribute('y1', OFFSET + start.r * CELL);
+      line.setAttribute('x2', OFFSET + end.c * CELL);
+      line.setAttribute('y2', OFFSET + end.r * CELL);
+      line.setAttribute('class', 'win-line');
+      svg.appendChild(line);
+    }
+
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        if (board[r][c]) {
+          const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          circle.setAttribute('cx', OFFSET + c * CELL);
+          circle.setAttribute('cy', OFFSET + r * CELL);
+          circle.setAttribute('r', CELL * 0.42);
+          circle.setAttribute('class', board[r][c] === 'black' ? 'stone-black' : 'stone-white');
+          svg.appendChild(circle);
+        }
+      }
+    }
+
+    if (lastMove) {
+      const mark = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      mark.setAttribute('cx', OFFSET + lastMove.c * CELL);
+      mark.setAttribute('cy', OFFSET + lastMove.r * CELL);
+      mark.setAttribute('r', CELL * 0.15);
+      mark.setAttribute('class', 'last-move');
+      svg.appendChild(mark);
+    }
+
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', OFFSET + c * CELL - CELL / 2);
+        rect.setAttribute('y', OFFSET + r * CELL - CELL / 2);
+        rect.setAttribute('width', CELL);
+        rect.setAttribute('height', CELL);
+        rect.setAttribute('fill', 'transparent');
+        rect.setAttribute('class', 'gomoku-cell');
+        rect.addEventListener('click', () => onCellClick(r, c));
+        rect.addEventListener('touchend', (e) => { e.preventDefault(); onCellClick(r, c); }, {passive: false});
+        svg.appendChild(rect);
+      }
+    }
+  }
+
+  function onCellClick(r, c) {
+    initAudio();
+    if (gameOver || current !== playerSide) return;
+    if (placeStone(r, c)) {
+      if (!gameOver) {
+        setTimeout(aiMove, 300);
+      }
+    }
+  }
+
+  function aiMove() {
+    if (gameOver || current === playerSide) return;
+    initAudio();
+    const move = findAIMove();
+    if (move) {
+      placeStone(move.r, move.c);
+      if (!gameOver && current !== playerSide) {
+        setTimeout(aiMove, 300);
+      }
+    }
+  }
+
+  function findAIMove() {
+    const color = current;
+    const opp = color === 'black' ? 'white' : 'black';
+    const candidates = [];
+    for (let r = 0; r < SIZE; r++) {
+      for (let c = 0; c < SIZE; c++) {
+        if (board[r][c] === null) {
+          if (color === 'black' && isForbidden(r, c, 'black')) continue;
+          candidates.push({r, c});
+        }
+      }
+    }
+    if (candidates.length === 0) return null;
+
+    for (let m of candidates) {
+      board[m.r][m.c] = color;
+      const win = checkWin(m.r, m.c, color);
+      board[m.r][m.c] = null;
+      if (win) return m;
+    }
+    for (let m of candidates) {
+      board[m.r][m.c] = opp;
+      const win = checkWin(m.r, m.c, opp);
+      board[m.r][m.c] = null;
+      if (win) return m;
+    }
+
+    if (aiLevel === 1) {
+      const scored = candidates.map(m => ({...m, s: evaluateMove(m.r, m.c, color, opp)}));
+      scored.sort((a, b) => b.s - a.s);
+      const top = scored.slice(0, Math.max(3, Math.floor(scored.length * 0.15)));
+      return top[Math.floor(Math.random() * top.length)];
+    }
+
+    if (aiLevel === 2) {
+      const scored = candidates.map(m => ({...m, s: evaluateMove(m.r, m.c, color, opp)}));
+      scored.sort((a, b) => b.s - a.s);
+      return scored[0];
+    }
+
+    if (aiLevel >= 3) {
+      let best = null;
+      let bestScore = -Infinity;
+      for (let m of candidates) {
+        let s = evaluateMove(m.r, m.c, color, opp);
+        if (aiLevel >= 4) {
+          board[m.r][m.c] = color;
+          let worst = Infinity;
+          for (let r2 = 0; r2 < SIZE; r2++) {
+            for (let c2 = 0; c2 < SIZE; c2++) {
+              if (board[r2][c2] === null) {
+                if (opp === 'black' && isForbidden(r2, c2, 'black')) continue;
+                board[r2][c2] = opp;
+                let s2 = evaluateMove(r2, c2, opp, color);
+                board[r2][c2] = null;
+                if (s2 < worst) worst = s2;
+              }
+            }
+          }
+          board[m.r][m.c] = null;
+          if (worst === Infinity) worst = s;
+          s = s * 0.6 + worst * 0.4;
+        }
+        if (s > bestScore) {
+          bestScore = s;
+          best = m;
+        }
+      }
+      return best;
+    }
+    return candidates[Math.floor(Math.random() * candidates.length)];
+  }
+
+  function evaluateMove(r, c, color, opp) {
+    let score = 0;
+    const center = (SIZE - 1) / 2;
+    score += (14 - Math.abs(r - center) - Math.abs(c - center)) * 2;
+
+    board[r][c] = color;
+    for (let [dr, dc] of DIRS) {
+      const line = countLine(r, c, dr, dc, color);
+      const open = getOpenEnds(r, c, dr, dc, color);
+      if (line.count >= 5) score += 100000;
+      else if (line.count === 4) score += open >= 2 ? 8000 : (open === 1 ? 4000 : 100);
+      else if (line.count === 3) score += open === 2 ? 1500 : (open === 1 ? 300 : 50);
+      else if (line.count === 2) score += open === 2 ? 200 : (open === 1 ? 50 : 10);
+    }
+    board[r][c] = null;
+
+    board[r][c] = opp;
+    for (let [dr, dc] of DIRS) {
+      const line = countLine(r, c, dr, dc, opp);
+      const open = getOpenEnds(r, c, dr, dc, opp);
+      if (line.count >= 5) score += 50000;
+      else if (line.count === 4) score += open >= 2 ? 4000 : (open === 1 ? 2000 : 50);
+      else if (line.count === 3) score += open === 2 ? 800 : (open === 1 ? 150 : 30);
+      else if (line.count === 2) score += open === 2 ? 100 : (open === 1 ? 25 : 5);
+    }
+    board[r][c] = null;
+
+    let near = 0;
+    for (let dr = -2; dr <= 2; dr++) {
+      for (let dc = -2; dc <= 2; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nr = r + dr, nc = c + dc;
+        if (inBounds(nr, nc) && board[nr][nc] !== null) near++;
+      }
+    }
+    score += near * 10;
+    return score;
+  }
+
+  function generateBoardText() {
+    const lines = [];
+    lines.push('【五目並べ 盤面記録】');
+    lines.push('レベル: ' + aiLevel + ' | あなた: ' + (playerSide === 'black' ? '黒' : '白'));
+    if (gameOver) lines.push('結果: ' + (current === 'black' ? '白' : '黒') + 'の勝利');
+    else lines.push('手番: ' + (current === 'black' ? '黒' : '白'));
+    lines.push('');
+    lines.push('  A B C D E F G H I J K L M N O');
+    for (let r = 0; r < SIZE; r++) {
+      let row = (r + 1).toString().padStart(2, ' ') + ' ';
+      for (let c = 0; c < SIZE; c++) {
+        if (board[r][c] === 'black') row += '● ';
+        else if (board[r][c] === 'white') row += '○ ';
+        else row += '・ ';
+      }
+      lines.push(row);
+    }
+    lines.push('');
+    lines.push('【手順】');
+    moveHistory.forEach((m, i) => {
+      lines.push((i + 1) + '. ' + (m.color === 'black' ? '黒' : '白') + ' ' + m.pos);
+    });
+    return lines.join('\n');
+  }
+
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    initAudio();
+    initBoard();
+  });
+  document.getElementById('levelSelect').addEventListener('change', (e) => {
+    aiLevel = parseInt(e.target.value);
+  });
+  document.getElementById('playerColor').addEventListener('change', (e) => {
+    playerSide = e.target.value;
+    initBoard();
+  });
+  document.getElementById('copyBtn').addEventListener('click', () => {
+    const area = document.getElementById('copyArea');
+    const ta = document.getElementById('copyText');
+    ta.value = generateBoardText();
+    area.classList.toggle('visible');
+  });
+  document.getElementById('copyClipBtn').addEventListener('click', () => {
+    const ta = document.getElementById('copyText');
+    ta.select();
+    document.execCommand('copy');
+    const btn = document.getElementById('copyClipBtn');
+    const old = btn.textContent;
+    btn.textContent = 'コピー完了';
+    setTimeout(() => btn.textContent = old, 1200);
+  });
+
+  initBoard();
+})();
+</script>
+
+</body>
+</html>
